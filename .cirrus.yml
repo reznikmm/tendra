@@ -1,0 +1,10 @@
+freebsd_instance:
+  image_family: freebsd-11-3
+
+task:
+  name: Build TenDRA
+  env:
+    HOME: /tmp # 
+  install_script: pwd
+  build_script: make TARGETARCH=x32_64
+
