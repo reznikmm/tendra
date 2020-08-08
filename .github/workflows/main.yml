@@ -1,11 +1,69 @@
 on: [push, pull_request]
 name: Build
 jobs:
-  build:
-    runs-on: ubuntu-16.04
-    name: Build on Ubuntu 16.04
+  freebsd_10_03:
+    runs-on: macOS-latest
+    name: FreeBSD 10.03
     steps:
       - uses: actions/checkout@v2
       - name: Install dependencies
-        run: sudo apt-get install -y gcc-multilib bmake
-      - run: bmake TARGETARCH=x32_64 OSVER=LINUX37 LIBCVER=GLIBC2_19
+        run: |
+          brew install qemu
+          brew install expect
+      - name: Cache VM image
+        uses: actions/cache@v2
+        with:
+         path: ~/cache
+         key: key
+      - name: Download FreeBSD VM
+        run: |
+          mkdir -p ~/cache
+          (cd ~/cache;
+           wget -c https://sourceforge.net/projects/osboxes/files/v/vb/20-F-eBD/10.3/10-332.7z/download;
+           7z x -o/tmp/ download)
+
+      - name: Launch FreeBSD VM
+        run: |
+          cat > /tmp/qemu.tcl << EOF
+          set send_human {.5 .5 10 .5 1}
+          set timeout -1
+          spawn qemu-system-i386 -nographic -drive file=fat:rw:.,format=raw,index=1 -net user -net nic -accel hax /tmp/32bit/FreeBSD\ 10.3\ \(32bit\).vdi
+          expect {
+              Autoboot {send 3}
+          }
+          expect {
+              OK {send -h "set console=comconsole\r"}
+          }
+          expect {
+              OK {send -h "boot\r"}
+          }
+          expect {
+              login: {send -h root\r}
+          }
+          expect {
+              Password: {send -h osboxes.org\r}
+          }
+          expect {
+              FreeBSD {
+                  send "set -x\n"
+                  send "echo > /etc/resolvconf.conf\n"
+                  send "resolvconf -u\n"
+                  send "setenv ASSUME_ALWAYS_YES yes\n"
+                  send "setenv SIGNATURE_TYPE NONE\n"
+                  send "pkg bootstrap -f\n"
+                  send "pkg -o IGNORE_OSVERSION=yes install bmake\n"
+                  send "mount -t msdosfs /dev/ada1s1 /mnt/\n"
+                  send "mkdir /tmp/tendra\n"
+                  send "tar -cf- --exclude .git -C /mnt . | tar -xf- -C /tmp/tendra\n"
+                  send "bmake -C /tmp/tendra/\n"
+                  send "echo \$? > /mnt/status\n"
+                  send "poweroff\n"
+              }
+          }
+          expect {
+              "Powering system off" { wait  }
+          }
+          EOF
+          expect /tmp/qemu.tcl
+          if [ -f status ]; then STATUS=`cat status`; else exit 1; fi
+          exit $STATUS
